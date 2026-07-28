@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>かけ算アプリ</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: #f3f6fb; margin: 0; padding: 20px;
+    display: flex; justify-content: center;
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 28px 24px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.08);
+    width: 100%; max-width: 440px; text-align: center;
+  }
+  h1 { font-size: 22px; margin: 0 0 20px; color: #33415c; }
+  .lv-btn {
+    display: block; width: 100%; padding: 16px; margin: 10px 0;
+    font-size: 18px; font-weight: bold; border: none; border-radius: 12px;
+    color: #fff; cursor: pointer;
+  }
+  .lv1 { background: #4caf50; } .lv2 { background: #ff9800; } .lv3 { background: #e91e63; }
+  .lv-btn small { display:block; font-weight:normal; font-size:13px; opacity:.9; margin-top:4px;}
+  .bar { height: 8px; background: #e3e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+  .bar > div { height: 100%; background: #4c8bf5; width: 0; transition: width .3s; }
+  .meta { font-size: 13px; color: #7a869a; margin-bottom: 18px; display:flex; justify-content:space-between;}
+  .q { font-size: 46px; font-weight: bold; color: #22304a; margin: 18px 0; letter-spacing: 2px; }
+  input[type=number] {
+    font-size: 34px; width: 160px; text-align: center; padding: 8px;
+    border: 2px solid #c8d3e3; border-radius: 10px; outline: none;
+  }
+  input[type=number]:focus { border-color: #4c8bf5; }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin:0; }
+  input[type=number] { -moz-appearance: textfield; }
+  .main-btn {
+    margin-top: 18px; width: 100%; padding: 14px; font-size: 17px; font-weight: bold;
+    background: #4c8bf5; color: #fff; border: none; border-radius: 12px; cursor: pointer;
+  }
+  .main-btn:disabled { background: #b9c6dc; cursor: default; }
+  .judge { font-size: 64px; height: 76px; line-height: 76px; font-weight: bold; }
+  .ok { color: #2e9e4f; } .ng { color: #e0384e; }
+  .ans { font-size: 20px; color: #e0384e; min-height: 28px; font-weight:bold; }
+  .note { font-size: 13px; color: #7a869a; min-height: 20px; }
+  .score { font-size: 17px; line-height: 1.9; color:#33415c; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div id="menu">
+    <h1>かけ算れんしゅう</h1>
+    <button class="lv-btn lv1" onclick="start(1)">初級<small>1×1 ～ 9×9</small></button>
+    <button class="lv-btn lv2" onclick="start(2)">中級<small>1×1 ～ 20×10</small></button>
+    <button class="lv-btn lv3" onclick="start(3)">上級<small>10×10 ～ 20×20</small></button>
+    <p class="note">全20問。まちがえた問題は最後にもう一度出ます。</p>
+  </div>
+
+  <div id="quiz" class="hide">
+    <div class="bar"><div id="prog"></div></div>
+    <div class="meta"><span id="count"></span><span id="stat"></span></div>
+    <div class="q" id="qtext"></div>
+    <input type="number" id="input" inputmode="numeric" autocomplete="off">
+    <div class="judge" id="judge"></div>
+    <div class="ans" id="ans"></div>
+    <div class="note" id="note"></div>
+    <button class="main-btn" id="btn" onclick="action()">答え合わせ</button>
+  </div>
+
+  <div id="result" class="hide">
+    <h1>おつかれさま！</h1>
+    <div style="font-size:70px">🎉</div>
+    <div class="score" id="score"></div>
+    <button class="main-btn" onclick="location.reload()">メニューにもどる</button>
+  </div>
+
+</div>
+<script>
+const TOTAL = 20;
+let queue = [], retry = [], cur = null, done = 0, correct = 0, miss = 0, phase = 'answer';
+
+const rnd = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
+function makeQ(lv){
+  if (lv===1) return {a:rnd(1,9),  b:rnd(1,9)};
+  if (lv===2) return {a:rnd(1,20), b:rnd(1,10)};
+  return {a:rnd(10,20), b:rnd(10,20)};
+}
+
+function start(lv){
+  queue = Array.from({length:TOTAL}, () => makeQ(lv));
+  retry = []; done = 0; correct = 0; miss = 0;
+  menu.classList.add('hide'); quiz.classList.remove('hide');
+  next();
+}
+
+function next(){
+  if (!queue.length && retry.length) { queue = retry; retry = []; note.textContent = 'まちがえた問題にもう一度チャレンジ！'; }
+  else note.textContent = '';
+  if (!queue.length) return finish();
+
+  cur = queue.shift();
+  phase = 'answer';
+  qtext.textContent = `${cur.a} × ${cur.b} = ?`;
+  input.value = ''; input.disabled = false; input.focus();
+  judge.textContent = ''; ans.textContent = '';
+  btn.textContent = '答え合わせ';
+  const totalQ = done + queue.length + retry.length + 1;
+  count.textContent = `第 ${done+1} 問 / 全 ${totalQ} 問`;
+  stat.textContent = `〇 ${correct}　× ${miss}`;
+  prog.style.width = (done/totalQ*100) + '%';
+}
+
+function action(){
+  if (phase === 'answer'){
+    if (input.value === '') { input.focus(); return; }
+    const my = Number(input.value), right = cur.a*cur.b;
+    input.disabled = true; done++;
+    if (my === right){
+      correct++; judge.textContent = '〇'; judge.className = 'judge ok';
+      stat.textContent = `〇 ${correct}　× ${miss}`;
+      setTimeout(next, 700);
+      btn.textContent = '次の問題へ';
+      phase = 'next';
+    } else {
+      miss++; judge.textContent = '×'; judge.className = 'judge ng';
+      ans.textContent = `正解は ${right} でした`;
+      stat.textContent = `〇 ${correct}　× ${miss}`;
+      retry.push(cur);
+      btn.textContent = '次の問題へ';
+      phase = 'next';
+    }
+  } else next();
+}
+
+function finish(){
+  quiz.classList.add('hide'); result.classList.remove('hide');
+  score.innerHTML = `解いた問題数：<b>${done}</b> 問<br>正解：<b>${correct}</b>　まちがい：<b>${miss}</b>`;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !quiz.classList.contains('hide')) action();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+[theme]
+base = "light"
+primaryColor = "#2563eb"
+
+[server]
+# スマホ・別PCから同じWi-Fi経由でアクセスできるようにする
+address = "0.0.0.0"
+headless = true
+
+[browser]
+gatherUsageStats = false

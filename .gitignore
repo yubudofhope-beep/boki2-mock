@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 boki2_data/
 .venv/
+
+.streamlit/secrets.toml

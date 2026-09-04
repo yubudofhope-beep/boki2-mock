@@ -42,27 +42,47 @@ def admin_password() -> str:
 # ================================================================ ログイン
 if not ss.user:
     st.title("🧮 簿記2級 模試メーカー")
-    st.write("名前を選んでください。名前ごとに成績と苦手論点が記録されます。")
-    users = db.list_users()
-    col1, col2 = st.columns(2)
-    with col1:
-        if users:
-            pick = st.selectbox("登録済みの名前", ["（新しく作る）"] + users)
-            if pick != "（新しく作る）" and st.button("この名前で始める", type="primary",
-                                                     use_container_width=True):
-                ss.user = pick
-                db.log_login(pick)
-                st.rerun()
-    with col2:
-        new = st.text_input("新しい名前（ニックネームでOK）", max_chars=20)
-        if st.button("はじめる", use_container_width=True,
-                     type="primary" if not users else "secondary"):
-            if new.strip():
-                ss.user = new.strip()
+    tab_in, tab_new = st.tabs(["ログイン", "はじめて使う"])
+
+    with tab_in:
+        st.write("自分の名前と合言葉を入れてください。")
+        with st.form("login_form"):
+            name = st.text_input("名前", max_chars=20, key="li_name")
+            pin = st.text_input("合言葉", type="password", max_chars=40, key="li_pin")
+            ok = st.form_submit_button("ログイン", type="primary", use_container_width=True)
+        if ok:
+            good, msg = db.authenticate(name, pin)
+            if good:
+                ss.user = name.strip()
                 db.log_login(ss.user)
+                if msg:
+                    st.toast(msg, icon="🔑")
                 st.rerun()
             else:
-                st.warning("名前を入力してください。")
+                st.error(msg)
+
+    with tab_new:
+        st.write("名前と合言葉を決めて登録します。同じ名前は登録できません。")
+        with st.form("signup_form"):
+            name2 = st.text_input("名前（ニックネームでOK）", max_chars=20, key="su_name")
+            pin1 = st.text_input("合言葉（4文字以上）", type="password", max_chars=40, key="su_pin1")
+            pin2 = st.text_input("合言葉をもう一度", type="password", max_chars=40, key="su_pin2")
+            ok2 = st.form_submit_button("登録して始める", type="primary",
+                                        use_container_width=True)
+        if ok2:
+            if pin1 != pin2:
+                st.error("2つの合言葉が一致しません。")
+            else:
+                good, msg = db.register(name2, pin1)
+                if good:
+                    ss.user = name2.strip()
+                    db.log_login(ss.user)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.caption("合言葉は暗号化して保存され、管理者にも見えません。"
+                   "忘れたときは管理者にリセットしてもらってください。")
+
     kind, err = db.backend_info()
     st.caption(f"保存先：{kind}")
     if err:
@@ -319,6 +339,16 @@ def page_admin():
     st.download_button("⬇️ 成績一覧をCSVで保存",
                        sum_df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="全ユーザー成績一覧.csv", mime="text/csv")
+
+    with st.expander("🔑 合言葉を忘れた人の対応"):
+        target = st.selectbox("リセットする人", ["（選んでください）"] + db.list_users())
+        st.caption("リセットすると、その人が次にログインするときに入力した合言葉が"
+                   "そのまま新しい合言葉になります。成績は消えません。")
+        if st.button("合言葉をリセットする") and target != "（選んでください）":
+            if db.reset_pin(target):
+                st.success(f"「{target}」の合言葉をリセットしました。")
+            else:
+                st.error("リセットできませんでした。")
 
     all_rows = db.all_results()
 

@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets as secrets_mod
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +46,9 @@ class SqliteStore:
             c.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 name TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL);
+                created_at TEXT NOT NULL,
+                pin_salt TEXT,
+                pin_hash TEXT);
             CREATE TABLE IF NOT EXISTS logins (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_name TEXT NOT NULL,
@@ -65,12 +69,34 @@ class SqliteStore:
                 at TEXT NOT NULL,
                 used TEXT);
             """)
+            # 既存DBに列を足す（すでにあればエラーを無視）
+            for col in ("pin_salt TEXT", "pin_hash TEXT"):
+                try:
+                    c.execute(f"ALTER TABLE users ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
 
     # -------------------------------------------------- 書き込み
     def ensure_user(self, user):
         with self._conn() as c:
             c.execute("INSERT OR IGNORE INTO users(name, created_at) VALUES (?,?)",
                       (user, now()))
+
+    def get_user(self, name):
+        with self._conn() as c:
+            r = c.execute("SELECT name, pin_salt, pin_hash FROM users WHERE name = ?",
+                          (name,)).fetchone()
+        return dict(r) if r else None
+
+    def create_user(self, name, salt, hashed):
+        with self._conn() as c:
+            c.execute("INSERT INTO users(name, created_at, pin_salt, pin_hash) VALUES (?,?,?,?)",
+                      (name, now(), salt, hashed))
+
+    def set_pin(self, name, salt, hashed):
+        with self._conn() as c:
+            c.execute("UPDATE users SET pin_salt=?, pin_hash=? WHERE name=?",
+                      (salt, hashed, name))
 
     def log_login(self, user):
         self.ensure_user(user)
@@ -150,6 +176,19 @@ class SupabaseStore:
         self.cli.table("users").upsert({"name": user, "created_at": now()},
                                        on_conflict="name", ignore_duplicates=True).execute()
 
+    def get_user(self, name):
+        r = (self.cli.table("users").select("name, pin_salt, pin_hash")
+             .eq("name", name).limit(1).execute())
+        return r.data[0] if r.data else None
+
+    def create_user(self, name, salt, hashed):
+        self.cli.table("users").insert({"name": name, "created_at": now(),
+                                        "pin_salt": salt, "pin_hash": hashed}).execute()
+
+    def set_pin(self, name, salt, hashed):
+        self.cli.table("users").update({"pin_salt": salt, "pin_hash": hashed}) \
+            .eq("name", name).execute()
+
     def log_login(self, user):
         self.ensure_user(user)
         self.cli.table("logins").insert({"user_name": user, "at": now()}).execute()
@@ -227,6 +266,71 @@ def get_store():
 def backend_info():
     s = get_store()
     return s.kind, _error
+
+
+# ---------------------------------------------------------------- 合言葉（ログイン）
+def _hash(pin: str, salt: str) -> str:
+    """合言葉は平文で保存せず、ソルト付きハッシュにして保存する。"""
+    return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"),
+                               bytes.fromhex(salt), 200_000).hex()
+
+
+def name_taken(name: str) -> bool:
+    try:
+        return get_store().get_user(name) is not None
+    except Exception:
+        return False
+
+
+def register(name: str, pin: str):
+    """新規登録。成功なら (True, "") 、失敗なら (False, 理由)。"""
+    name = (name or "").strip()
+    if len(name) < 1:
+        return False, "名前を入力してください。"
+    if len(pin or "") < 4:
+        return False, "合言葉は4文字以上にしてください。"
+    try:
+        store = get_store()
+        if store.get_user(name) is not None:
+            return False, f"「{name}」はすでに使われています。別の名前にしてください。"
+        salt = secrets_mod.token_hex(16)
+        store.create_user(name, salt, _hash(pin, salt))
+        return True, ""
+    except Exception as e:
+        return False, f"登録できませんでした（{type(e).__name__}）"
+
+
+def authenticate(name: str, pin: str):
+    """ログイン。成功なら (True, "")。"""
+    name = (name or "").strip()
+    try:
+        u = get_store().get_user(name)
+    except Exception as e:
+        return False, f"接続できませんでした（{type(e).__name__}）"
+    if u is None:
+        return False, "名前か合言葉が違います。"
+    if not u.get("pin_hash"):
+        # 合言葉を設定する前に作られた古いユーザー → この場で設定する
+        if len(pin or "") < 4:
+            return False, "この名前にはまだ合言葉が設定されていません。4文字以上で設定してください。"
+        salt = secrets_mod.token_hex(16)
+        try:
+            get_store().set_pin(name, salt, _hash(pin, salt))
+        except Exception:
+            return False, "合言葉を保存できませんでした。"
+        return True, "合言葉を設定しました。次回からこの合言葉でログインできます。"
+    if _hash(pin or "", u["pin_salt"]) == u["pin_hash"]:
+        return True, ""
+    return False, "名前か合言葉が違います。"
+
+
+def reset_pin(name: str) -> bool:
+    """管理者用：合言葉を未設定に戻す（次回ログイン時に本人が付け直す）。"""
+    try:
+        get_store().set_pin(name, None, None)
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------- 共通API

@@ -3,8 +3,14 @@
 
 create table if not exists users (
     name       text primary key,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    pin_salt   text,
+    pin_hash   text
 );
+
+-- すでにテーブルを作ってある場合は、この2行で列を追加します（合言葉ログイン用）
+alter table users add column if not exists pin_salt text;
+alter table users add column if not exists pin_hash text;
 
 create table if not exists logins (
     id        bigserial primary key,

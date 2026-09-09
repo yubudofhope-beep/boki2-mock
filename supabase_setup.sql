@@ -41,9 +41,12 @@ create index if not exists idx_results_user on results (user_name, at);
 create index if not exists idx_logins_user  on logins  (user_name, at);
 create index if not exists idx_issued_user  on issued  (user_name, id desc);
 
--- アプリから anon キーで読み書きするため、この4つのテーブルは行レベルセキュリティを外します。
--- （保存されるのは名前と点数だけです。個人情報や本名は入れないでください）
-alter table users   disable row level security;
-alter table logins  disable row level security;
-alter table results disable row level security;
-alter table issued  disable row level security;
+-- 行レベルセキュリティを有効にします。ポリシーを1つも作らないので、
+-- anon キー（公開キー）では読み書きが一切できません。
+-- アプリは service_role キーを使い、RLSをバイパスしてアクセスします。
+-- ※ service_role キーは絶対に公開しないこと（Streamlit の Secrets と
+--   ローカルの .streamlit/secrets.toml にだけ置く）
+alter table users   enable row level security;
+alter table logins  enable row level security;
+alter table results enable row level security;
+alter table issued  enable row level security;

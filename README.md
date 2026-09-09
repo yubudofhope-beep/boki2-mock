@@ -89,9 +89,13 @@ python -m streamlit run app.py
    （データベースのパスワードはどこかに控えておく）
 2. 左メニューの **SQL Editor** を開き、このフォルダの `supabase_setup.sql` の中身を貼り付けて **Run**
    → テーブルが4つできます
-3. 左下の **Project Settings → API** を開き、次の2つをコピー
+3. 左下の **Project Settings → API Keys → Legacy API keys** を開き、次の2つをコピー
    - `Project URL`（`https://〇〇.supabase.co`）
-   - `anon` `public` キー（長い文字列）
+   - **`service_role` キー**（`anon` ではありません）
+
+   > テーブルは行レベルセキュリティ（RLS）を有効にしてあり、`anon` キーでは何も読み書きできません。
+   > アプリはサーバー側で `service_role` キーを使います。このキーはブラウザには送られませんが、
+   > **絶対に公開しないでください**（GitHubに上げない、人に見せない）。
 4. アプリに教える。**ローカルの場合**は `.streamlit/secrets.toml.example` を
    `secrets.toml` という名前でコピーして、中身を書き換えます。
 
